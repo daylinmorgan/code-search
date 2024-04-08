@@ -1,0 +1,30 @@
+name: Build Release Assets
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: goto-bus-stop/setup-zig@v2
+
+      - name: build binaries
+        run: zig build release
+
+      - name: zip binaries
+        run: |
+          for dir in ./zig-out/**; do
+            if [[ "$d" =~ "windows" ]]; then
+              7z a -tzip code-search-$(basename $dir).zip ./${dir}/*
+            else
+              tar -czvf code-search-$(basename $dir).tar.gz -C ${dir} .
+            fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          path: |
+            code-search-*.tar.gz
+            code-search-*.zip
