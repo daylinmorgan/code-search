@@ -56,12 +56,16 @@ pub fn deinit(self: *Result) void {
     self.allocator.free(self.url);
 }
 
-pub const ViewFormat = enum { markdown, plain };
+pub const ViewFormat = enum { markdown, plain, glow, neovim };
 
 pub fn view(self: *Result, format: ViewFormat) !void {
     switch (format) {
-        .markdown => try self.viewMarkdown(),
+        .markdown => {
+            const stdout = std.io.getStdOut();
+            try self.viewMarkdown(stdout);
+        },
         .plain => try self.viewPlain(),
+        .glow, .neovim => |f| try self.viewChild(f),
     }
 }
 
@@ -97,10 +101,10 @@ pub fn viewPlain(self: *Result) !void {
         }
     }
 }
-pub fn viewMarkdown(self: *Result) !void {
-    const stdout = std.io.getStdOut().writer();
+pub fn viewMarkdown(self: *Result, stdout: std.fs.File) !void {
+    const writer = stdout.writer();
 
-    try stdout.print(
+    try writer.print(
         \\# Query
         \\
         \\url: {s}
@@ -109,7 +113,7 @@ pub fn viewMarkdown(self: *Result) !void {
     , .{ self.url, self.result.total_count });
 
     for (self.result.items) |item| {
-        try stdout.print(
+        try writer.print(
             \\
             \\# `{s}`
             \\## [`{s}`]({s})
@@ -119,10 +123,83 @@ pub fn viewMarkdown(self: *Result) !void {
         var it = std.mem.splitBackwards(u8, item.path, ".");
         const ext = it.first();
         for (item.text_matches) |match| {
-            try stdout.print(
+            try writer.print(
                 "\n```{s}\n{s}\n```\n",
                 .{ ext, match.fragment },
             );
         }
     }
+}
+
+/// Determine the terminal window width in columns
+/// modified from PR to std.Progress
+fn determineTerminalWidth() ?usize {
+    // if (self.terminal == null) return null;
+    const terminal = std.io.getStdErr();
+    const windows = std.os.windows;
+    const builtin = @import("builtin");
+    switch (builtin.os.tag) {
+        .linux => {
+            var window_size: std.os.linux.winsize = undefined;
+            const exit_code = std.os.linux.ioctl(terminal.handle, std.os.linux.T.IOCGWINSZ, @intFromPtr(&window_size));
+            if (exit_code < 0) return null;
+            return @intCast(window_size.ws_col);
+        },
+        .macos => {
+            var window_size: std.c.winsize = undefined;
+            const exit_code = std.c.ioctl(terminal.handle, std.c.T.IOCGWINSZ, @intFromPtr(&window_size));
+            if (exit_code < 0) return null;
+            return @intCast(window_size.ws_col);
+        },
+        .windows => {
+            var screen_buffer_info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+            const exit_code = windows.kernel32.GetConsoleScreenBufferInfo(terminal.handle, &screen_buffer_info);
+            if (exit_code != windows.TRUE) return null;
+            return @intCast(screen_buffer_info.dwSize.X - 1);
+        },
+        else => return null,
+    }
+    return null;
+}
+
+pub fn viewChild(self: *Result, format: ViewFormat) !void {
+    const termWidth = try std.fmt.allocPrint(
+        self.allocator,
+        "{d}",
+        .{determineTerminalWidth() orelse 100},
+    );
+    defer self.allocator.free(termWidth);
+
+    var child = std.ChildProcess.init(
+        switch (format) {
+            .glow => &.{
+                "glow",
+                "-p",
+                "-w",
+                termWidth,
+            },
+            .neovim => &.{
+                "nvim",
+                "-c",
+                "set filetype=markdown",
+                "-R",
+                "-",
+            },
+            else => unreachable,
+        },
+        self.allocator,
+    );
+
+    child.stdin_behavior = .Pipe;
+
+    try child.spawn();
+    try self.viewMarkdown(child.stdin.?);
+
+    // Send EOF to stdin. copied from compiler...
+    // stdin must be set to null for some reason
+    child.stdin.?.close();
+    child.stdin = null;
+
+    // TODO: report exit status?
+    _ = try child.wait();
 }

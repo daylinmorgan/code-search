@@ -76,12 +76,12 @@ pub fn showHelp() void {
         \\
         \\  -h, --help      show this help
         \\      --raw       treat input as raw query
-        \\      --format    output format, one of: markdown|plain
+        \\      --format    output (markdown|plain|glow|neovim)
         \\      --page      page of results to return
         \\      --per-page  numble of results per page (default: 10)
         \\
         \\key/value query options:
-        \\      --in        one of: file|path|file,path
+        \\      --in        (file|path|file,path)
         \\  -l, --language
         \\  -u, --user
         \\  -o, --org
