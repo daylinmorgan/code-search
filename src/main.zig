@@ -1,7 +1,6 @@
 const std = @import("std");
 const Search = @import("search/Search.zig");
 const Cli = @import("Cli.zig");
-// const args = @import("zig-args");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
